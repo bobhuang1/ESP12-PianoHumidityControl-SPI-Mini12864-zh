@@ -1,0 +1,27 @@
+﻿Mini 12864
+1  VSS  电源地 ***
+2  VDD  电源正极（＋5V） ***
+3  VR  空脚
+4  AO/DC  数据/命令选择端（H/L） *** D8 GPIO 15
+5  R/W  读写控制信号（H/L） ***
+6  E  使能信号 ***
+7  DB0  Data　I/O  
+8  DB1  Data　I/O
+9  DB2  Data　I/O
+10  DB3  Data　I/O
+11  DB4  Data　I/O
+12  DB5  Data　I/O 
+13  DB6  Data　I/O SCK *** D5 GPIO 14
+14  DB7  Data　I/O SDA*** D6 GPIO 12
+15  /CS  片选信号 *** D7 GPIO 13
+16  NC  空脚 
+17  RST  复位端（H：正常工作，L：复位） *** D0 GPIO 16
+18  V0  空脚 
+19  BLA  背光源正极 *** +3.3V
+20  BLK  背光源负极　***
+
+
+GPIO 0 DHT2
+GPIO 2 DHT1
+GPIO 4 RELAY1
+GPIO 5 RELAY2
