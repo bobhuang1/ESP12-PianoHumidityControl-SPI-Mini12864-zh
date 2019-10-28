@@ -46,7 +46,7 @@ String firmwareBin = "";
 
 // BIN files: 1300.bin
 
-#define DHTTYPE  DHT11       // Sensor type DHT11/21/22/AM2301/AM2302
+#define DHTTYPE  AM2301       // Sensor type DHT11/21/22/AM2301/AM2302
 #define DHTPIN   2 // 2, -1
 #define RELAYPIN 5
 #define BACKLIGHTPIN 0 // 2, 0
@@ -115,11 +115,11 @@ int lightLevel[10];
 
 
 void turnOff() {
-  digitalWrite(RELAYPIN, LOW);
+  digitalWrite(RELAYPIN, HIGH);
 }
 
 void turnOn() {
-  digitalWrite(RELAYPIN, HIGH);
+  digitalWrite(RELAYPIN, LOW);
 }
 
 void setup() {
