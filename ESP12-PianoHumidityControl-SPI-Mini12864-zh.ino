@@ -16,7 +16,7 @@
 #include "HeWeatherCurrent.h"
 #include "GarfieldCommon.h"
 
-#define CURRENT_VERSION 1
+#define CURRENT_VERSION 2
 //#define DEBUG
 //#define USE_WIFI_MANAGER     // disable to NOT use WiFi manager, enable to use
 #define DISPLAY_TYPE 2   // 1-BIG 12864, 2-MINI 12864, 3-New Big BLUE 12864, to use 3, you must change u8x8_d_st7565.c as well!!!, 4- New BLUE 12864-ST7920
