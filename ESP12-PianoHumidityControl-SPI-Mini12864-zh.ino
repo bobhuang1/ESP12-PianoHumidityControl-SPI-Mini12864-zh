@@ -16,7 +16,7 @@
 #include "HeWeatherCurrent.h"
 #include "GarfieldCommon.h"
 
-#define CURRENT_VERSION 2
+#define CURRENT_VERSION 3
 //#define DEBUG
 //#define USE_WIFI_MANAGER     // disable to NOT use WiFi manager, enable to use
 #define DISPLAY_TYPE 2   // 1-BIG 12864, 2-MINI 12864, 3-New Big BLUE 12864, to use 3, you must change u8x8_d_st7565.c as well!!!, 4- New BLUE 12864-ST7920
@@ -43,6 +43,8 @@ int humidityMultiplier = 100;
 int humidityBias = 0;
 int firmwareversion = 0;
 String firmwareBin = "";
+
+SettingsServerStruct settingsServer;
 
 // BIN files: 1300.bin
 
@@ -177,7 +179,7 @@ void setup() {
 #endif
   drawProgress("连接WIFI成功,", "正在同步时间...");
   configTime(TZ_SEC, DST_SEC, NTP_SERVER);
-  readValueWebSite(serialNumber, Location, Token, Resistor, dummyMode, backlightOffMode, sendAlarmEmail, alarmEmailAddress, displayContrast, displayMultiplier, displayBias, displayMinimumLevel, displayMaximumLevel, temperatureMultiplier, temperatureBias, humidityMultiplier, humidityBias, firmwareversion, firmwareBin);
+  readValueWebSite(&settingsServer, serialNumber, Location, Token, Resistor, dummyMode, backlightOffMode, sendAlarmEmail, alarmEmailAddress, displayContrast, displayMultiplier, displayBias, displayMinimumLevel, displayMaximumLevel, temperatureMultiplier, temperatureBias, humidityMultiplier, humidityBias, firmwareversion, firmwareBin);
   if (serialNumber < 0)
   {
     drawProgress("新MAC " + String(WiFi.macAddress()), "序列号: " + String(serialNumber));
@@ -232,15 +234,15 @@ void setup() {
   Serial.print("CURRENT_VERSION: ");
   Serial.println(CURRENT_VERSION);
   Serial.print("firmwareBin: ");
-  Serial.println(SETTINGS_BASE_URL + SETTINGS_OTA_BIN_URL + firmwareBin);
+  Serial.println(settingsServer.settingsBaseUrl + settingsServer.settingsOtaBinUrl + firmwareBin);
   Serial.println("");
-  writeBootWebSite(serialNumber);
+  writeBootWebSite(&settingsServer, serialNumber);
   if (firmwareversion > CURRENT_VERSION)
   {
     drawProgress("自动升级中!", "请稍候......");
     Serial.println("Auto upgrade starting...");
     ESPhttpUpdate.rebootOnUpdate(false);
-    t_httpUpdate_return ret = ESPhttpUpdate.update(SETTINGS_SERVER, 81, SETTINGS_BASE_URL + SETTINGS_OTA_BIN_URL + firmwareBin);
+    t_httpUpdate_return ret = ESPhttpUpdate.update(settingsServer.settingsServer, settingsServer.settingsPort, settingsServer.settingsBaseUrl + settingsServer.settingsOtaBinUrl + firmwareBin);
     Serial.println("Auto upgrade finished.");
     Serial.print("ret "); Serial.println(ret);
     switch (ret) {
@@ -356,7 +358,7 @@ void updateData(bool isInitialBoot) {
   currentWeatherClient.updateCurrent(&currentWeather, HEWEATHER_APP_ID, HEWEATHER_LOCATION, HEWEATHER_LANGUAGE);
   if (!isInitialBoot)
   {
-    writeDataWebSite(serialNumber, previousTemp, previousHumidity, currentWeather.tmp, currentWeather.hum, 0);
+    writeDataWebSite(&settingsServer, serialNumber, previousTemp, previousHumidity, currentWeather.tmp, currentWeather.hum, 0);
   }
   readyForWeatherUpdate = false;
 }
@@ -450,5 +452,3 @@ void drawLocal() {
   }
   display.drawHLine(0, 51, 128);
 }
-
-
