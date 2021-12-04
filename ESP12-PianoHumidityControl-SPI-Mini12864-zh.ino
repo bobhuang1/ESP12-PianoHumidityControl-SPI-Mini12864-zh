@@ -1,7 +1,6 @@
 #include <DHT.h>
 #include <DHT_U.h>
 #include <ESP8266WiFi.h>
-#include <ESPHTTPClient.h>
 #include <JsonListener.h>
 #include <stdio.h>
 #include <time.h>                   // struct timeval
@@ -10,54 +9,39 @@
 #include <Arduino.h>
 #include <U8g2lib.h>
 #include <SPI.h>
-#include <WiFiManager.h>
-#include <ESP8266httpUpdate.h>
-#include "FS.h"
+#include <TimeLib.h>
 #include "HeWeatherCurrent.h"
-#include "GarfieldCommon.h"
+#include "WeatherFonts.h"
 
-#define CURRENT_VERSION 3
+#define CURRENT_VERSION 4
 //#define DEBUG
-//#define USE_WIFI_MANAGER     // disable to NOT use WiFi manager, enable to use
-#define DISPLAY_TYPE 2   // 1-BIG 12864, 2-MINI 12864, 3-New Big BLUE 12864, to use 3, you must change u8x8_d_st7565.c as well!!!, 4- New BLUE 12864-ST7920
 #define LANGUAGE_CN  // LANGUAGE_CN or LANGUAGE_EN
+
+const char* WIFI_SSID[] = {"ibehome", "ibetest", "ibehomen", "TYCP", "Tenda_301"};
+const char* WIFI_PWD[] = {"tianwanggaidihu", "tianwanggaidihu", "tianwanggaidihu", "5107458970", "5107458970"};
+#define numWIFIs (sizeof(WIFI_SSID)/sizeof(char *))
+#define WIFI_TRY 30
+
+#define TZ              8       // (utc+) TZ in hours
+#define DST_MN          0      // use 60mn for summer time in some countries
+#define TZ_MN           ((TZ)*60)
+#define TZ_SEC          ((TZ)*3600)
+#define DST_SEC         ((DST_MN)*60)
+#define UPDATE_INTERVAL_SECS  (20 * 60) // Update every 20 minutes
+
+const String HEWEATHER_APP_ID = "d72b42bcfc994cfe9099eddc9647c6f2";
 
 
 // Serial 1300
-int serialNumber = -1;
-String Location = "Default";
-String Token = "Token";
-int Resistor = 80000;
-bool dummyMode = false;
-bool backlightOffMode = false;
-bool sendAlarmEmail = false;
-String alarmEmailAddress = "Email";
-int displayContrast = 128;
-int displayMultiplier = 100;
-int displayBias = 0;
-int displayMinimumLevel = 1;
-int displayMaximumLevel = 1023;
-int temperatureMultiplier = 100;
-int temperatureBias = 0;
-int humidityMultiplier = 100;
-int humidityBias = 0;
-int firmwareversion = 0;
-String firmwareBin = "";
-
-SettingsServerStruct settingsServer;
-
-// BIN files: 1300.bin
 
 #define DHTTYPE  AM2301       // Sensor type DHT11/21/22/AM2301/AM2302
-#define DHTPIN   2 // 2, -1
+#define DHTPIN   2
 #define RELAYPIN 5
-#define BACKLIGHTPIN 0 // 2, 0
+#define BACKLIGHT 4
+
+U8G2_ST7565_64128N_F_4W_SW_SPI display(U8G2_R0, /* clock=*/ 14, /* data=*/ 12, /* cs=*/ 13, /* dc=*/ 15, /* reset=*/ 16); // U8G2_ST7565_64128N_F_4W_SW_SPI, u8x8_d_st7565.c U8X8_C(0x060)
 
 #define MAXHUMIDITY 50
-
-#if DISPLAY_TYPE == 3
-#define BIGBLUE12864
-#endif
 
 #ifdef LANGUAGE_CN
 const String HEWEATHER_LANGUAGE = "zh"; // zh for Chinese, en for English
@@ -65,11 +49,7 @@ const String HEWEATHER_LANGUAGE = "zh"; // zh for Chinese, en for English
 const String HEWEATHER_LANGUAGE = "en"; // zh for Chinese, en for English
 #endif
 
-#ifdef USE_WIFI_MANAGER
-const String HEWEATHER_LOCATION = "auto_ip"; // Get location from IP address
-#else
 const String HEWEATHER_LOCATION = "CN101210202"; // Changxing
-#endif
 
 #ifdef LANGUAGE_CN
 const String WDAY_NAMES[] = { "星期天", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六" };
@@ -77,33 +57,10 @@ const String WDAY_NAMES[] = { "星期天", "星期一", "星期二", "星期三"
 const String WDAY_NAMES[] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
 #endif
 
-#if (DHTPIN >= 0)
 DHT dht(DHTPIN, DHTTYPE);
-#endif
 
 HeWeatherCurrentData currentWeather;
 HeWeatherCurrent currentWeatherClient;
-
-#if DISPLAY_TYPE == 1
-U8G2_ST7565_LM6059_F_4W_SW_SPI display(U8G2_R2, /* clock=*/ 14, /* data=*/ 12, /* cs=*/ 13, /* dc=*/ 15, /* reset=*/ 16); // U8G2_ST7565_LM6059_F_4W_SW_SPI
-#endif
-
-#if DISPLAY_TYPE == 2
-U8G2_ST7565_64128N_F_4W_SW_SPI display(U8G2_R0, /* clock=*/ 14, /* data=*/ 12, /* cs=*/ 13, /* dc=*/ 15, /* reset=*/ 16); // U8G2_ST7565_64128N_F_4W_SW_SPI, u8x8_d_st7565.c U8X8_C(0x060)
-#endif
-
-#if DISPLAY_TYPE == 3
-U8G2_ST7565_64128N_F_4W_SW_SPI display(U8G2_R2, /* clock=*/ 14, /* data=*/ 12, /* cs=*/ 13, /* dc=*/ 15, /* reset=*/ 16); // U8G2_ST7565_64128N_F_4W_SW_SPI
-#endif
-
-#if DISPLAY_TYPE == 4
-U8G2_ST7920_128X64_F_SW_SPI display(U8G2_R2, /* clo  ck=*/ 14 /* A4 */ , /* data=*/ 12 /* A2 */, /* CS=*/ 16 /* A3 */, /* reset=*/ U8X8_PIN_NONE); // 16, U8X8_PIN_NONE
-//#define BACKLIGHTPIN 15 // 2, 0
-//#define LIGHT_SENSOR   // turn off for ST7565, turn on for ST7920 with BHV1750/GY-30/GY-302 light sensor
-//#define LIGHT_SDA_PIN 0  // D3
-//#define LIGHT_SCL_PIN  13 // D7
-//BH1750 lightMeter(0x23);
-#endif
 
 time_t nowTime;
 const String degree = String((char)176);
@@ -111,10 +68,54 @@ bool readyForWeatherUpdate = false;
 long timeSinceLastWUpdate = 0;
 float previousTemp = 0;
 float previousHumidity = 0;
-int lightLevel[10];
 
-#define UPDATE_INTERVAL_SECS 1500
 
+void connectWiFi()
+{
+  if (WiFi.status() == WL_CONNECTED) return;
+  int intPreferredWIFI = 0;
+  WiFi.persistent(false);
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+
+  int n = WiFi.scanNetworks();
+  if (n == 0)
+  {
+  }
+  else
+  {
+    for (int i = 0; i < n; ++i)
+    {
+      for (int j = 0; j < numWIFIs; j++)
+      {
+        if (strcmp(WIFI_SSID[j], string2char(WiFi.SSID(i))) == 0)
+        {
+          intPreferredWIFI = j;
+          break;
+        }
+      }
+    }
+  }
+
+  WiFi.persistent(true);
+  WiFi.begin(WIFI_SSID[intPreferredWIFI], WIFI_PWD[intPreferredWIFI]);
+  int WIFIcounter = intPreferredWIFI;
+  while (WiFi.status() != WL_CONNECTED) {
+    int counter = 0;
+    while (counter < WIFI_TRY && WiFi.status() != WL_CONNECTED)
+    {
+      if (WiFi.status() == WL_CONNECTED) break;
+      delay(500);
+      if (WiFi.status() == WL_CONNECTED) break;
+      counter++;
+    }
+    if (WiFi.status() == WL_CONNECTED) break;
+    WIFIcounter++;
+    if (WIFIcounter >= numWIFIs) WIFIcounter = 0;
+    WiFi.begin(WIFI_SSID[WIFIcounter], WIFI_PWD[WIFIcounter]);
+  }
+  return;
+}
 
 void turnOff() {
   digitalWrite(RELAYPIN, HIGH);
@@ -130,174 +131,32 @@ void setup() {
 #ifdef DEBUG
   Serial.println("Begin");
 #endif
-  initializeBackLightArray(lightLevel, BACKLIGHTPIN);
-  adjustBacklightSub();
 
-#if (DHTPIN >= 0)
   dht.begin();
-#endif
+
+  pinMode(BACKLIGHT, OUTPUT);
+  analogWrite(BACKLIGHT, 255);
 
   pinMode(RELAYPIN, OUTPUT);
   turnOff();
 
-  listSPIFFSFiles(); // Lists the files so you can see what is in the SPIFFS
+  turnOn();
+  delay(2000);
+  turnOff();
 
   display.begin();
   display.setFontPosTop();
-  setContrastSub();
-
+  display.setContrast(128);
   display.clearBuffer();
   display.drawXBM(31, 0, 66, 64, garfield);
   display.sendBuffer();
-  delay(1000);
-
-  drawProgress(String(CompileDate), "Version: " + String(CURRENT_VERSION));
-  delay(1000);
-
-  drawProgress("Backlight Level", "Test");
-  selfTestBacklight(BACKLIGHTPIN);
-
-#ifdef USE_WIFI_MANAGER
-  drawProgress("连接WIFI:", "IBECloc12864-HW");
-#else
-  drawProgress("连接WIFI中,", "请稍等...");
-#endif
-
-  connectWIFI(
-#ifdef USE_WIFI_MANAGER
-    true
-#else
-    false
-#endif
-  );
-
-  if (WiFi.status() != WL_CONNECTED) ESP.restart();
-
-  // Get time from network time service
-#ifdef DEBUG
-  Serial.println("WIFI Connected");
-#endif
-  drawProgress("连接WIFI成功,", "正在同步时间...");
-  configTime(TZ_SEC, DST_SEC, NTP_SERVER);
-  readValueWebSite(&settingsServer, serialNumber, Location, Token, Resistor, dummyMode, backlightOffMode, sendAlarmEmail, alarmEmailAddress, displayContrast, displayMultiplier, displayBias, displayMinimumLevel, displayMaximumLevel, temperatureMultiplier, temperatureBias, humidityMultiplier, humidityBias, firmwareversion, firmwareBin);
-  if (serialNumber < 0)
-  {
-    drawProgress("新MAC " + String(WiFi.macAddress()), "序列号: " + String(serialNumber));
-    stopApp();
-  }
-  else if (serialNumber == 0)
-  {
-    drawProgress("多MAC " + String(WiFi.macAddress()), "找管理员处理");
-    stopApp();
-  }
-  setContrastSub();
-  drawProgress("Serial: " + String(serialNumber), "MAC: " + String(WiFi.macAddress()));
-  delay(1500);
-  Serial.print("MAC: ");
-  Serial.println(String(WiFi.macAddress()));
-  Serial.print("Serial: ");
-  Serial.println(serialNumber);
-  Serial.print("Location: ");
-  Serial.println(Location);
-  Serial.print("Token: ");
-  Serial.println(Token);
-  Serial.print("Resistor: ");
-  Serial.println(Resistor);
-  Serial.print("dummyMode: ");
-  Serial.println(dummyMode);
-  Serial.print("backlightOffMode: ");
-  Serial.println(backlightOffMode);
-  Serial.print("sendAlarmEmail: ");
-  Serial.println(sendAlarmEmail);
-  Serial.print("alarmEmailAddress: ");
-  Serial.println(alarmEmailAddress);
-  Serial.print("displayContrast: ");
-  Serial.println(displayContrast);
-  Serial.print("displayMultiplier: ");
-  Serial.println(displayMultiplier);
-  Serial.print("displayBias: ");
-  Serial.println(displayBias);
-  Serial.print("displayMinimumLevel: ");
-  Serial.println(displayMinimumLevel);
-  Serial.print("displayMaximumLevel: ");
-  Serial.println(displayMaximumLevel);
-  Serial.print("temperatureMultiplier: ");
-  Serial.println(temperatureMultiplier);
-  Serial.print("temperatureBias: ");
-  Serial.println(temperatureBias);
-  Serial.print("humidityMultiplier: ");
-  Serial.println(humidityMultiplier);
-  Serial.print("humidityBias: ");
-  Serial.println(humidityBias);
-  Serial.print("firmwareversion: ");
-  Serial.println(firmwareversion);
-  Serial.print("CURRENT_VERSION: ");
-  Serial.println(CURRENT_VERSION);
-  Serial.print("firmwareBin: ");
-  Serial.println(settingsServer.settingsBaseUrl + settingsServer.settingsOtaBinUrl + firmwareBin);
-  Serial.println("");
-  writeBootWebSite(&settingsServer, serialNumber);
-  if (firmwareversion > CURRENT_VERSION)
-  {
-    drawProgress("自动升级中!", "请稍候......");
-    Serial.println("Auto upgrade starting...");
-    ESPhttpUpdate.rebootOnUpdate(false);
-    t_httpUpdate_return ret = ESPhttpUpdate.update(settingsServer.settingsServer, settingsServer.settingsPort, settingsServer.settingsBaseUrl + settingsServer.settingsOtaBinUrl + firmwareBin);
-    Serial.println("Auto upgrade finished.");
-    Serial.print("ret "); Serial.println(ret);
-    switch (ret) {
-      case HTTP_UPDATE_FAILED:
-        Serial.printf("HTTP_UPDATE_FAILED Error (%d): %s\n", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
-        drawProgress("升级错误!", "重启!");
-        delay(2000);
-        ESP.restart();
-        break;
-      case HTTP_UPDATE_NO_UPDATES:
-        Serial.println("HTTP_UPDATE_NO_UPDATES");
-        drawProgress("无需升级!", "继续启动...");
-        delay(1500);
-        break;
-      case HTTP_UPDATE_OK:
-        Serial.println("HTTP_UPDATE_OK");
-        drawProgress("升级成功!", "重启...");
-        delay(2000);
-        ESP.restart();
-        break;
-      default:
-        Serial.print("Undefined HTTP_UPDATE Code: "); Serial.println(ret);
-        drawProgress("升级错误!", "重启!");
-        delay(2000);
-        ESP.restart();
-    }
-  }
-  else
-  {
-    drawProgress("无需自动升级!", "继续启动...");
-  }
-  drawProgress("同步时间成功,", "正在更新天气数据...");
   updateData(true);
-  timeSinceLastWUpdate = millis();
-}
-
-void setContrastSub() {
-  if (displayContrast > 0)
-  {
-    display.setContrast(displayContrast);
-    Serial.print("Set displayContrast to: ");
-    Serial.println(displayContrast);
-    Serial.println();
-  }
-}
-
-void adjustBacklightSub() {
-  adjustBacklight(lightLevel, BACKLIGHTPIN, displayBias, displayMultiplier);
 }
 
 void loop() {
-
   display.firstPage();
   do {
-    drawLocal();
+    drawLocalSystem();
   } while ( display.nextPage() );
 
   if (millis() - timeSinceLastWUpdate > (1000 * UPDATE_INTERVAL_SECS)) {
@@ -305,11 +164,10 @@ void loop() {
     timeSinceLastWUpdate = millis();
   }
 
-#if (DHTPIN >= 0)
   if (dht.read())
   {
-    float fltHumidity = dht.readHumidity() * humidityMultiplier / 100 + humidityBias;
-    float fltCTemp = dht.readTemperature() * temperatureMultiplier / 100 + temperatureBias;
+    float fltHumidity = dht.readHumidity() * 100 / 100 + 0;
+    float fltCTemp = dht.readTemperature() * 100 / 100 + 0;
 #ifdef DEBUG
     Serial.print("Humidity: ");
     Serial.println(fltHumidity);
@@ -340,56 +198,60 @@ void loop() {
       }
     }
   }
-#endif
-
+  DebugShowSystemTime();
   if (readyForWeatherUpdate) {
     updateData(false);
   }
+  delay(1000);
 }
 
 void updateData(bool isInitialBoot) {
-  nowTime = time(nullptr);
-  struct tm* timeInfo;
-  timeInfo = localtime(&nowTime);
-  if (isInitialBoot)
+  // Connect WiFi
+  connectWiFi();
+  if (WiFi.status() == WL_CONNECTED) 
   {
-    drawProgress("正在更新...", "本地天气实况...");
+    configTime(TZ_SEC, DST_SEC, "pool.ntp.org");
+    long beginTime = millis();
+    int inteval = 30;
+    if (isInitialBoot) inteval = 5;
+    while(time(nullptr) <= 100000) {
+      if ((millis() - beginTime) > inteval * 1000) 
+      {
+        return; // it more than inteval seconds return
+      }
+      delay(100);
+    }
   }
   currentWeatherClient.updateCurrent(&currentWeather, HEWEATHER_APP_ID, HEWEATHER_LOCATION, HEWEATHER_LANGUAGE);
-  if (!isInitialBoot)
-  {
-    writeDataWebSite(&settingsServer, serialNumber, previousTemp, previousHumidity, currentWeather.tmp, currentWeather.hum, 0);
-  }
   readyForWeatherUpdate = false;
+  return;
 }
 
-void drawProgress(String labelLine1, String labelLine2) {
-  display.clearBuffer();
-  display.enableUTF8Print();
-  display.setFont(u8g2_font_wqy12_t_gb2312); // u8g2_font_wqy12_t_gb2312, u8g2_font_helvB08_tf
-  int stringWidth = 1;
-  if (labelLine1 != "")
-  {
-    stringWidth = display.getUTF8Width(string2char(labelLine1));
-    display.setCursor((128 - stringWidth) / 2, 13);
-    display.print(labelLine1);
-  }
-  if (labelLine2 != "")
-  {
-    stringWidth = display.getUTF8Width(string2char(labelLine2));
-    display.setCursor((128 - stringWidth) / 2, 36);
-    display.print(labelLine2);
-  }
-  display.disableUTF8Print();
-  display.sendBuffer();
-}
-
-void drawLocal() {
+void drawLocalSystem() {
   nowTime = time(nullptr);
   struct tm* timeInfo;
   timeInfo = localtime(&nowTime);
   char buff[20];
-
+  if (timeInfo->tm_hour >= 0 && timeInfo->tm_hour < 6)
+  {
+    analogWrite(BACKLIGHT, 32);
+  }
+  else if (timeInfo->tm_hour >= 6 && timeInfo->tm_hour < 8)
+  {
+    analogWrite(BACKLIGHT, 128);
+  }
+  else if (timeInfo->tm_hour >= 8 && timeInfo->tm_hour < 17)
+  {
+    analogWrite(BACKLIGHT, 255);
+  }
+  else if (timeInfo->tm_hour >= 17 && timeInfo->tm_hour < 22)
+  {
+    analogWrite(BACKLIGHT, 128);
+  }
+  else if (timeInfo->tm_hour >= 22 && timeInfo->tm_hour <= 23)
+  {
+    analogWrite(BACKLIGHT, 64);
+  }
   display.enableUTF8Print();
   display.setFont(u8g2_font_wqy12_t_gb2312); // u8g2_font_wqy12_t_gb2312, u8g2_font_helvB08_tf
   String stringText = String(timeInfo->tm_year + 1900) + "年" + String(timeInfo->tm_mon + 1) + "月" + String(timeInfo->tm_mday) + "日 " + WDAY_NAMES[timeInfo->tm_wday].c_str();
@@ -409,7 +271,6 @@ void drawLocal() {
   sprintf_P(buff, PSTR("%02d:%02d"), timeInfo->tm_hour, timeInfo->tm_min);
   stringWidth = display.getStrWidth(buff);
   display.drawStr((128 - 30 - stringWidth) / 2, 11, buff);
-
   display.setFont(Meteocon21);
   if (previousHumidity > MAXHUMIDITY)
   {
@@ -417,18 +278,14 @@ void drawLocal() {
   }
   else
   {
-    display.drawStr(98, 17, string2char(chooseMeteocon(currentWeather.iconMeteoCon)));
+    display.drawStr(98, 17, string2char(chooseMeteoconSystem(currentWeather.iconMeteoCon)));
   }
-
-
   display.setFont(u8g2_font_helvR08_tf);
   String temp = String(currentWeather.tmp) + degree + "C";
   display.drawStr(0, 53, string2char(temp));
-
   display.setFont(u8g2_font_helvR08_tf);
   stringWidth = display.getStrWidth(string2char((String(currentWeather.hum) + "%")));
   display.drawStr(127 - stringWidth, 53, string2char((String(currentWeather.hum) + "%")));
-
   display.setFont(u8g2_font_helvB08_tf);
   if (previousTemp != 0 && previousHumidity != 0)
   {
@@ -451,4 +308,67 @@ void drawLocal() {
     //    display.drawStr(128 - stringWidth, 39, string2char("..."));
   }
   display.drawHLine(0, 51, 128);
+}
+
+String chooseMeteoconSystem(String stringInput) {
+  time_t nowTime = time(nullptr);
+  struct tm* timeInfo;
+  timeInfo = localtime(&nowTime);
+  if (timeInfo->tm_hour > 6 && timeInfo->tm_hour < 18)
+  {
+    return stringInput.substring(0, 1);
+  }
+  else
+  {
+    return stringInput.substring(1, 2);
+  }
+}
+
+String windDirectionTranslate(String stringInput) {
+  String stringReturn = stringInput;
+  stringReturn.replace("N", "北");
+  stringReturn.replace("S", "南");
+  stringReturn.replace("E", "东");
+  stringReturn.replace("W", "西");
+  stringReturn.replace("无持续", "无");
+  return stringReturn;
+}
+
+char* string2char(String command) {
+  if (command.length() != 0) {
+    char *p = const_cast<char*>(command.c_str());
+    return p;
+  }
+}
+
+String intToString(int intInput) {
+  if (intInput > 9)
+  {
+    return String(intInput);
+  }
+  else
+  {
+    return "0" + String(intInput);
+  }
+}
+
+void DebugShowSystemTime() {
+  time_t nowTime = time(nullptr);
+  struct tm * timeInfo;
+  timeInfo = localtime (&nowTime);
+#ifdef DEBUG  
+  Serial.print("SYS ");
+  Serial.print(timeInfo->tm_year - 100);    // 00-99
+  Serial.print('-');
+  Serial.print(intToString(timeInfo->tm_mon + 1));   // 01-12
+  Serial.print('-');
+  Serial.print(intToString(timeInfo->tm_mday));     // 01-31
+  Serial.print(' ');
+  Serial.print(intToString(timeInfo->tm_hour));    // 00-23
+  Serial.print(':');
+  Serial.print(intToString(timeInfo->tm_min));  // 00-59
+  Serial.print(':');
+  Serial.print(intToString(timeInfo->tm_sec));  // 00-59
+  Serial.println();
+#endif  
 }
