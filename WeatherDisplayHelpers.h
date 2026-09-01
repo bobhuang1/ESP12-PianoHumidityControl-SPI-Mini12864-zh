@@ -7,11 +7,12 @@
 extern const uint8_t Meteocon21[1750] U8G2_FONT_SECTION("Meteocon21");
 extern const uint8_t Meteocon36[3312] U8G2_FONT_SECTION("Meteocon36");
 
-// Weather clients in this account (see esp8266-weather-WeatherApi) return icons as a
-// 2-character string: the day glyph followed by the night glyph. This picks whichever one
-// is appropriate for the current local time (day: 6:00-18:00).
+// Expects a 2-character string: the day glyph followed by the night glyph
+// (see esp8266-weather-WeatherApi for how such pairs are produced from a
+// weather condition code). Picks whichever glyph is appropriate for the
+// current local time (day: 6:00-18:00).
 String chooseMeteoconChar(String dayNightIconPair);
 
-// Replaces N/S/E/W (and the "no sustained wind" placeholder) with the Chinese characters
-// used on this account's Chinese-language weather displays.
+// Translates N/S/E/W (and the "no sustained wind" placeholder) to Chinese,
+// for Chinese-language weather displays.
 String translateWindDirectionToChinese(String windDirection);

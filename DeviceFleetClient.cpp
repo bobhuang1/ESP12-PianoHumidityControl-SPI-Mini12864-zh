@@ -136,7 +136,7 @@ void DeviceFleetClient::readSettings(DeviceFleetSettings &settings) {
 			case 14: settings.temperatureBias = field.toInt(); break;
 			case 15: settings.humidityMultiplier = field.toInt(); break;
 			case 16: settings.humidityBias = field.toInt(); break;
-			// index 17 intentionally unused (matches the original field layout)
+			// index 17 intentionally unused (reserved in the field layout)
 			case 18: settings.firmwareVersion = field.toInt(); break;
 			case 19: settings.firmwareBin = field; break;
 		}
