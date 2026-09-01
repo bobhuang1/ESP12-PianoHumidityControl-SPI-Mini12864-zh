@@ -46,11 +46,9 @@ variant (`DISPLAY_TYPE 3`) you additionally need the patched u8g2 driver from
 
 ## Notes
 
-- Originally used a now-defunct HeWeather API endpoint; migrated to
-  [WeatherAPI.com](https://www.weatherapi.com/) (see
-  [esp8266-weather-WeatherApi](https://github.com/bobhuang1/esp8266-weather-WeatherApi)).
-  WeatherAPI.com doesn't expose a discrete wind-scale/level field the way the
-  old API did, so the wind display now shows km/h instead of a 1-12 scale
-  number.
+- Weather data comes from [WeatherAPI.com](https://www.weatherapi.com/)
+  (see [esp8266-weather-WeatherApi](https://github.com/bobhuang1/esp8266-weather-WeatherApi)).
+  Wind is shown in km/h, since WeatherAPI.com doesn't expose a discrete
+  wind-scale/level field.
 - `#define LANGUAGE_CN` / comment it out to switch the on-screen text between
   Chinese and English.

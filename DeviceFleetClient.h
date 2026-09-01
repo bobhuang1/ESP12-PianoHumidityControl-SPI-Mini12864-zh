@@ -2,7 +2,6 @@
 #include <Arduino.h>
 
 // Every field this device's per-unit config can carry, filled in by readSettings().
-// Defaults match what the original per-sketch globals defaulted to.
 struct DeviceFleetSettings {
 	int serialNumber = -1;
 	String location = "Default";
