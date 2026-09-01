@@ -25,6 +25,8 @@ typedef struct WeatherApiForecastData {
 	float mintemp_c;
 	float totalprecip_mm;
 	uint8_t avghumidity;
+	uint8_t chanceOfRain;  // 0-100, WeatherAPI.com's daily_chance_of_rain
+	float maxwind_kph;
 	String text;
 	String code;
 	String iconMeteoCon;
