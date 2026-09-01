@@ -13,7 +13,7 @@
 #include <WiFiManager.h>
 #include <ESP8266httpUpdate.h>
 #include "FS.h"
-#include "HeWeatherCurrent.h"
+#include "WeatherApiWeather.h"
 #include "GarfieldCommon.h"
 
 #define CURRENT_VERSION 3
@@ -60,15 +60,15 @@ SettingsServerStruct settingsServer;
 #endif
 
 #ifdef LANGUAGE_CN
-const String HEWEATHER_LANGUAGE = "zh"; // zh for Chinese, en for English
+const String WEATHERAPI_LANGUAGE = "zh"; // zh for Chinese, en for English
 #else ifdef LANGUAGE_EN
-const String HEWEATHER_LANGUAGE = "en"; // zh for Chinese, en for English
+const String WEATHERAPI_LANGUAGE = "en"; // zh for Chinese, en for English
 #endif
 
 #ifdef USE_WIFI_MANAGER
-const String HEWEATHER_LOCATION = "auto_ip"; // Get location from IP address
+const String WEATHERAPI_LOCATION = "auto:ip"; // WeatherAPI.com: resolve location from the request's IP address
 #else
-const String HEWEATHER_LOCATION = "CN101210202"; // Changxing
+const String WEATHERAPI_LOCATION = "YOUR_CITY"; // e.g. "London", "New York", or "lat,lon" - see WeatherAPI.com docs
 #endif
 
 #ifdef LANGUAGE_CN
@@ -81,8 +81,9 @@ const String WDAY_NAMES[] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
 DHT dht(DHTPIN, DHTTYPE);
 #endif
 
-HeWeatherCurrentData currentWeather;
-HeWeatherCurrent currentWeatherClient;
+WeatherApiCurrentData currentWeather;
+WeatherApiForecastData weatherForecastUnused[1]; // this sketch only displays current conditions
+WeatherApiWeather weatherClient;
 
 #if DISPLAY_TYPE == 1
 U8G2_ST7565_LM6059_F_4W_SW_SPI display(U8G2_R2, /* clock=*/ 14, /* data=*/ 12, /* cs=*/ 13, /* dc=*/ 15, /* reset=*/ 16); // U8G2_ST7565_LM6059_F_4W_SW_SPI
@@ -158,7 +159,7 @@ void setup() {
   selfTestBacklight(BACKLIGHTPIN);
 
 #ifdef USE_WIFI_MANAGER
-  drawProgress("连接WIFI:", "IBECloc12864-HW");
+  drawProgress("连接WIFI:", "ESP8266-Setup");
 #else
   drawProgress("连接WIFI中,", "请稍等...");
 #endif
@@ -355,10 +356,10 @@ void updateData(bool isInitialBoot) {
   {
     drawProgress("正在更新...", "本地天气实况...");
   }
-  currentWeatherClient.updateCurrent(&currentWeather, HEWEATHER_APP_ID, HEWEATHER_LOCATION, HEWEATHER_LANGUAGE);
+  weatherClient.updateWeather(&currentWeather, weatherForecastUnused, WEATHERAPI_APP_ID, WEATHERAPI_LOCATION, WEATHERAPI_LANGUAGE, 1);
   if (!isInitialBoot)
   {
-    writeDataWebSite(&settingsServer, serialNumber, previousTemp, previousHumidity, currentWeather.tmp, currentWeather.hum, 0);
+    writeDataWebSite(&settingsServer, serialNumber, previousTemp, previousHumidity, (int)currentWeather.temp_c, currentWeather.humidity, 0);
   }
   readyForWeatherUpdate = false;
 }
@@ -396,10 +397,10 @@ void drawLocal() {
   int stringWidth = display.getUTF8Width(string2char(stringText));
   display.setCursor((128 - stringWidth) / 2, 1);
   display.print(stringText);
-  stringWidth = display.getUTF8Width(string2char(String(currentWeather.cond_txt)));
+  stringWidth = display.getUTF8Width(string2char(String(currentWeather.text)));
   display.setCursor((128 - stringWidth) / 2, 40);
-  display.print(String(currentWeather.cond_txt));
-  String WindDirectionAndSpeed = windDirectionTranslate(currentWeather.wind_dir) + String(currentWeather.wind_sc) + "级";
+  display.print(String(currentWeather.text));
+  String WindDirectionAndSpeed = windDirectionTranslate(currentWeather.wind_dir) + String(currentWeather.wind_kph) + "km/h";
   stringWidth = display.getUTF8Width(string2char(WindDirectionAndSpeed));
   display.setCursor((128 - stringWidth) / 2, 54);
   display.print(WindDirectionAndSpeed);
@@ -422,12 +423,12 @@ void drawLocal() {
 
 
   display.setFont(u8g2_font_helvR08_tf);
-  String temp = String(currentWeather.tmp) + degree + "C";
+  String temp = String(currentWeather.temp_c, 0) + degree + "C";
   display.drawStr(0, 53, string2char(temp));
 
   display.setFont(u8g2_font_helvR08_tf);
-  stringWidth = display.getStrWidth(string2char((String(currentWeather.hum) + "%")));
-  display.drawStr(127 - stringWidth, 53, string2char((String(currentWeather.hum) + "%")));
+  stringWidth = display.getStrWidth(string2char((String(currentWeather.humidity) + "%")));
+  display.drawStr(127 - stringWidth, 53, string2char((String(currentWeather.humidity) + "%")));
 
   display.setFont(u8g2_font_helvB08_tf);
   if (previousTemp != 0 && previousHumidity != 0)
