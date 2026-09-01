@@ -14,7 +14,12 @@
 #include <ESP8266httpUpdate.h>
 #include "FS.h"
 #include "WeatherApiWeather.h"
-#include "GarfieldCommon.h"
+#include "StringHelpers.h"
+#include "BacklightController.h"
+#include "WiFiMultiConnect.h"
+#include "WeatherDisplayHelpers.h"
+#include "DeviceFleetClient.h"
+#include "BootSplashBitmap.h"
 
 #define CURRENT_VERSION 3
 //#define DEBUG
@@ -22,29 +27,19 @@
 #define DISPLAY_TYPE 2   // 1-BIG 12864, 2-MINI 12864, 3-New Big BLUE 12864, to use 3, you must change u8x8_d_st7565.c as well!!!, 4- New BLUE 12864-ST7920
 #define LANGUAGE_CN  // LANGUAGE_CN or LANGUAGE_EN
 
+// Fill in your own SSID/password pairs (or better, use USE_WIFI_MANAGER above
+// instead of hardcoding any of this). Never commit real WiFi credentials.
+const char* const WIFI_SSIDS[] = {"YOUR_SSID_1", "YOUR_SSID_2", "YOUR_SSID_3"};
+const char* const WIFI_PASSWORDS[] = {"YOUR_PASSWORD_1", "YOUR_PASSWORD_2", "YOUR_PASSWORD_3"};
 
-// Serial 1300
-int serialNumber = -1;
-String Location = "Default";
-String Token = "Token";
-int Resistor = 80000;
-bool dummyMode = false;
-bool backlightOffMode = false;
-bool sendAlarmEmail = false;
-String alarmEmailAddress = "Email";
-int displayContrast = 128;
-int displayMultiplier = 100;
-int displayBias = 0;
-int displayMinimumLevel = 1;
-int displayMaximumLevel = 1023;
-int temperatureMultiplier = 100;
-int temperatureBias = 0;
-int humidityMultiplier = 100;
-int humidityBias = 0;
-int firmwareversion = 0;
-String firmwareBin = "";
+const String WEATHERAPI_APP_ID = "YOUR_WEATHERAPI_COM_KEY"; // https://www.weatherapi.com/
 
-SettingsServerStruct settingsServer;
+// See DeviceFleetClient's README for what these servers need to implement - replace with
+// your own device-fleet backend, or remove the fleet-client calls below if you don't need one.
+DeviceFleetClient fleet(
+	"your-bootstrap-server.example.com", 80, "/iot.txt",
+	"your-settings-server.example.com", 81, "/IOT/");
+DeviceFleetSettings settings;
 
 // BIN files: 1300.bin
 
@@ -112,7 +107,7 @@ bool readyForWeatherUpdate = false;
 long timeSinceLastWUpdate = 0;
 float previousTemp = 0;
 float previousHumidity = 0;
-int lightLevel[10];
+BacklightController backlight;
 
 #define UPDATE_INTERVAL_SECS 1500
 
@@ -131,7 +126,7 @@ void setup() {
 #ifdef DEBUG
   Serial.println("Begin");
 #endif
-  initializeBackLightArray(lightLevel, BACKLIGHTPIN);
+  backlight.begin(BACKLIGHTPIN);
   adjustBacklightSub();
 
 #if (DHTPIN >= 0)
@@ -140,8 +135,6 @@ void setup() {
 
   pinMode(RELAYPIN, OUTPUT);
   turnOff();
-
-  listSPIFFSFiles(); // Lists the files so you can see what is in the SPIFFS
 
   display.begin();
   display.setFontPosTop();
@@ -156,21 +149,15 @@ void setup() {
   delay(1000);
 
   drawProgress("Backlight Level", "Test");
-  selfTestBacklight(BACKLIGHTPIN);
+  backlight.selfTest();
 
 #ifdef USE_WIFI_MANAGER
   drawProgress("连接WIFI:", "ESP8266-Setup");
+  connectWiFiWithManager("ESP8266-Setup");
 #else
   drawProgress("连接WIFI中,", "请稍等...");
+  connectWiFi(WIFI_SSIDS, WIFI_PASSWORDS, 3);
 #endif
-
-  connectWIFI(
-#ifdef USE_WIFI_MANAGER
-    true
-#else
-    false
-#endif
-  );
 
   if (WiFi.status() != WL_CONNECTED) ESP.restart();
 
@@ -179,71 +166,71 @@ void setup() {
   Serial.println("WIFI Connected");
 #endif
   drawProgress("连接WIFI成功,", "正在同步时间...");
-  configTime(TZ_SEC, DST_SEC, NTP_SERVER);
-  readValueWebSite(&settingsServer, serialNumber, Location, Token, Resistor, dummyMode, backlightOffMode, sendAlarmEmail, alarmEmailAddress, displayContrast, displayMultiplier, displayBias, displayMinimumLevel, displayMaximumLevel, temperatureMultiplier, temperatureBias, humidityMultiplier, humidityBias, firmwareversion, firmwareBin);
-  if (serialNumber < 0)
+  configTime(TZ_SEC_FOR(8), DST_SEC_FOR(0), DefaultNtpServer);
+  fleet.readSettings(settings);
+  if (settings.serialNumber < 0)
   {
-    drawProgress("新MAC " + String(WiFi.macAddress()), "序列号: " + String(serialNumber));
+    drawProgress("新MAC " + String(WiFi.macAddress()), "序列号: " + String(settings.serialNumber));
     stopApp();
   }
-  else if (serialNumber == 0)
+  else if (settings.serialNumber == 0)
   {
     drawProgress("多MAC " + String(WiFi.macAddress()), "找管理员处理");
     stopApp();
   }
   setContrastSub();
-  drawProgress("Serial: " + String(serialNumber), "MAC: " + String(WiFi.macAddress()));
+  drawProgress("Serial: " + String(settings.serialNumber), "MAC: " + String(WiFi.macAddress()));
   delay(1500);
   Serial.print("MAC: ");
   Serial.println(String(WiFi.macAddress()));
   Serial.print("Serial: ");
-  Serial.println(serialNumber);
+  Serial.println(settings.serialNumber);
   Serial.print("Location: ");
-  Serial.println(Location);
+  Serial.println(settings.location);
   Serial.print("Token: ");
-  Serial.println(Token);
+  Serial.println(settings.token);
   Serial.print("Resistor: ");
-  Serial.println(Resistor);
+  Serial.println(settings.resistor);
   Serial.print("dummyMode: ");
-  Serial.println(dummyMode);
+  Serial.println(settings.dummyMode);
   Serial.print("backlightOffMode: ");
-  Serial.println(backlightOffMode);
+  Serial.println(settings.backlightOffMode);
   Serial.print("sendAlarmEmail: ");
-  Serial.println(sendAlarmEmail);
+  Serial.println(settings.sendAlarmEmail);
   Serial.print("alarmEmailAddress: ");
-  Serial.println(alarmEmailAddress);
+  Serial.println(settings.alarmEmailAddress);
   Serial.print("displayContrast: ");
-  Serial.println(displayContrast);
+  Serial.println(settings.displayContrast);
   Serial.print("displayMultiplier: ");
-  Serial.println(displayMultiplier);
+  Serial.println(settings.displayMultiplier);
   Serial.print("displayBias: ");
-  Serial.println(displayBias);
+  Serial.println(settings.displayBias);
   Serial.print("displayMinimumLevel: ");
-  Serial.println(displayMinimumLevel);
+  Serial.println(settings.displayMinimumLevel);
   Serial.print("displayMaximumLevel: ");
-  Serial.println(displayMaximumLevel);
+  Serial.println(settings.displayMaximumLevel);
   Serial.print("temperatureMultiplier: ");
-  Serial.println(temperatureMultiplier);
+  Serial.println(settings.temperatureMultiplier);
   Serial.print("temperatureBias: ");
-  Serial.println(temperatureBias);
+  Serial.println(settings.temperatureBias);
   Serial.print("humidityMultiplier: ");
-  Serial.println(humidityMultiplier);
+  Serial.println(settings.humidityMultiplier);
   Serial.print("humidityBias: ");
-  Serial.println(humidityBias);
-  Serial.print("firmwareversion: ");
-  Serial.println(firmwareversion);
+  Serial.println(settings.humidityBias);
+  Serial.print("firmwareVersion: ");
+  Serial.println(settings.firmwareVersion);
   Serial.print("CURRENT_VERSION: ");
   Serial.println(CURRENT_VERSION);
   Serial.print("firmwareBin: ");
-  Serial.println(settingsServer.settingsBaseUrl + settingsServer.settingsOtaBinUrl + firmwareBin);
+  Serial.println(fleet.firmwareBinUrl(settings.firmwareBin));
   Serial.println("");
-  writeBootWebSite(&settingsServer, serialNumber);
-  if (firmwareversion > CURRENT_VERSION)
+  fleet.writeBootNotification(settings.serialNumber);
+  if (settings.firmwareVersion > CURRENT_VERSION)
   {
     drawProgress("自动升级中!", "请稍候......");
     Serial.println("Auto upgrade starting...");
     ESPhttpUpdate.rebootOnUpdate(false);
-    t_httpUpdate_return ret = ESPhttpUpdate.update(settingsServer.settingsServer, settingsServer.settingsPort, settingsServer.settingsBaseUrl + settingsServer.settingsOtaBinUrl + firmwareBin);
+    t_httpUpdate_return ret = ESPhttpUpdate.update(fleet.settingsServer(), fleet.settingsPort(), fleet.firmwareBinUrl(settings.firmwareBin));
     Serial.println("Auto upgrade finished.");
     Serial.print("ret "); Serial.println(ret);
     switch (ret) {
@@ -281,17 +268,17 @@ void setup() {
 }
 
 void setContrastSub() {
-  if (displayContrast > 0)
+  if (settings.displayContrast > 0)
   {
-    display.setContrast(displayContrast);
+    display.setContrast(settings.displayContrast);
     Serial.print("Set displayContrast to: ");
-    Serial.println(displayContrast);
+    Serial.println(settings.displayContrast);
     Serial.println();
   }
 }
 
 void adjustBacklightSub() {
-  adjustBacklight(lightLevel, BACKLIGHTPIN, displayBias, displayMultiplier);
+  backlight.update(settings.displayBias, settings.displayMultiplier);
 }
 
 void loop() {
@@ -309,8 +296,8 @@ void loop() {
 #if (DHTPIN >= 0)
   if (dht.read())
   {
-    float fltHumidity = dht.readHumidity() * humidityMultiplier / 100 + humidityBias;
-    float fltCTemp = dht.readTemperature() * temperatureMultiplier / 100 + temperatureBias;
+    float fltHumidity = dht.readHumidity() * settings.humidityMultiplier / 100 + settings.humidityBias;
+    float fltCTemp = dht.readTemperature() * settings.temperatureMultiplier / 100 + settings.temperatureBias;
 #ifdef DEBUG
     Serial.print("Humidity: ");
     Serial.println(fltHumidity);
@@ -359,7 +346,7 @@ void updateData(bool isInitialBoot) {
   weatherClient.updateWeather(&currentWeather, weatherForecastUnused, WEATHERAPI_APP_ID, WEATHERAPI_LOCATION, WEATHERAPI_LANGUAGE, 1);
   if (!isInitialBoot)
   {
-    writeDataWebSite(&settingsServer, serialNumber, previousTemp, previousHumidity, (int)currentWeather.temp_c, currentWeather.humidity, 0);
+    fleet.writeSensorData(settings.serialNumber, previousTemp, previousHumidity, (int)currentWeather.temp_c, currentWeather.humidity, 0);
   }
   readyForWeatherUpdate = false;
 }
@@ -400,7 +387,7 @@ void drawLocal() {
   stringWidth = display.getUTF8Width(string2char(String(currentWeather.text)));
   display.setCursor((128 - stringWidth) / 2, 40);
   display.print(String(currentWeather.text));
-  String WindDirectionAndSpeed = windDirectionTranslate(currentWeather.wind_dir) + String(currentWeather.wind_kph) + "km/h";
+  String WindDirectionAndSpeed = translateWindDirectionToChinese(currentWeather.wind_dir) + String(currentWeather.wind_kph) + "km/h";
   stringWidth = display.getUTF8Width(string2char(WindDirectionAndSpeed));
   display.setCursor((128 - stringWidth) / 2, 54);
   display.print(WindDirectionAndSpeed);
@@ -418,7 +405,7 @@ void drawLocal() {
   }
   else
   {
-    display.drawStr(98, 17, string2char(chooseMeteocon(currentWeather.iconMeteoCon)));
+    display.drawStr(98, 17, string2char(chooseMeteoconChar(currentWeather.iconMeteoCon)));
   }
 
 
