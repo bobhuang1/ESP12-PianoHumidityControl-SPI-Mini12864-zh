@@ -23,24 +23,26 @@ variant (`DISPLAY_TYPE 3`) you additionally need the patched u8g2 driver from
    `Adafruit Unified Sensor`), `Timezone`, `JsonStreamingParser`,
    `ESP8266HTTPClient`/`ESP8266httpUpdate` (bundled with the ESP8266 Arduino
    core).
-2. This sketch vendors two shared dependencies directly so it builds
+2. This sketch vendors its shared dependencies directly so it builds
    standalone - **replace their placeholder credentials/servers before
    flashing**:
    - `WeatherApiWeather.h`/`.cpp` ([source](https://github.com/bobhuang1/esp8266-weather-WeatherApi)) -
      set `WEATHERAPI_LOCATION` below the `#include`s to your city (or
      `"auto:ip"` when `USE_WIFI_MANAGER` is enabled), and set
-     `WEATHERAPI_APP_ID` in `GarfieldCommon.h` to your
+     `WEATHERAPI_APP_ID` (also below the `#include`s) to your
      [WeatherAPI.com](https://www.weatherapi.com/) key.
-   - `GarfieldCommon.h`/`.cpp` ([source](https://github.com/bobhuang1/ESP8266-Garfield-Common)) -
-     see that repo's README for the full placeholder list (WiFi
-     credentials, settings-server address) and security notes.
-   - If you update either shared library, re-copy the files here.
+   - `StringHelpers`, `BacklightController`, `WiFiMultiConnect`,
+     `WeatherDisplayHelpers`, `DeviceFleetClient`, `BootSplashBitmap`
+     ([source](https://github.com/bobhuang1/ESP8266-Functions-Common)) -
+     set `WIFI_SSIDS`/`WIFI_PASSWORDS` to your own network(s), or enable
+     `USE_WIFI_MANAGER` instead of hardcoding credentials at all.
+   - If you update any shared library, re-copy its `src/` files here.
 3. This sketch also expects a small device-fleet "settings server" backend
-   (`readValueWebSite`/`writeBootWebSite`/`writeDataWebSite` in
-   `GarfieldCommon`, used here for per-device config, OTA firmware version
-   checks, and logging readings) - see `GarfieldCommon`'s README if you want
-   to stand one up, or strip those calls out of `setup()`/`updateData()` if
-   you don't need remote fleet management for a single device.
+   (`DeviceFleetClient`, used here via the `fleet` object for per-device
+   config, OTA firmware version checks, and logging readings) - see
+   `DeviceFleetClient`'s README if you want to stand one up, or strip those
+   calls out of `setup()`/`updateData()` if you don't need remote fleet
+   management for a single device.
 
 ## Notes
 
