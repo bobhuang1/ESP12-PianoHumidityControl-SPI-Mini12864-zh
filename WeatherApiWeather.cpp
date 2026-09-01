@@ -125,6 +125,12 @@ void WeatherApiWeather::value(String value) {
 		if (currentKey == "avghumidity") {
 			forecastData[currentForecast].avghumidity = value.toInt();
 		}
+		if (currentKey == "daily_chance_of_rain") {
+			forecastData[currentForecast].chanceOfRain = value.toInt();
+		}
+		if (currentKey == "maxwind_kph") {
+			forecastData[currentForecast].maxwind_kph = value.toFloat();
+		}
 		if (currentKey == "text") {
 			forecastData[currentForecast].text = value;
 		}
