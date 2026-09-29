@@ -49,6 +49,8 @@ DeviceFleetSettings settings;
 #define BACKLIGHTPIN 0 // 2, 0
 
 #define MAXHUMIDITY 50
+#define HYSTERESIS 5  // relay switches OFF only this far below MAXHUMIDITY (45%) -
+                      // prevents chattering when readings hover at the threshold
 
 #if DISPLAY_TYPE == 3
 #define BIGBLUE12864
@@ -56,7 +58,7 @@ DeviceFleetSettings settings;
 
 #ifdef LANGUAGE_CN
 const String WEATHERAPI_LANGUAGE = "zh"; // zh for Chinese, en for English
-#else ifdef LANGUAGE_EN
+#else ifdef LANGUAGE_EN // NOTE: '#else ifdef' is not valid preprocessor; use plain '#else'
 const String WEATHERAPI_LANGUAGE = "en"; // zh for Chinese, en for English
 #endif
 
@@ -68,7 +70,7 @@ const String WEATHERAPI_LOCATION = "YOUR_CITY"; // e.g. "London", "New York", or
 
 #ifdef LANGUAGE_CN
 const String WDAY_NAMES[] = { "星期天", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六" };
-#else ifdef LANGUAGE_EN
+#else ifdef LANGUAGE_EN // NOTE: '#else ifdef' is not valid preprocessor; use plain '#else'
 const String WDAY_NAMES[] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
 #endif
 
@@ -283,6 +285,8 @@ void adjustBacklightSub() {
 
 void loop() {
 
+  adjustBacklightSub(); // auto-dim from the photoresistor (previously only ran once in setup())
+
   display.firstPage();
   do {
     drawLocal();
@@ -318,11 +322,14 @@ void loop() {
       {
         previousHumidity = 100;
       }
+      // Relay hysteresis: ON at/above MAXHUMIDITY, OFF only after humidity falls
+      // below MAXHUMIDITY - HYSTERESIS. Inside the band the relay keeps its
+      // previous state, so sensor noise at the threshold cannot chatter it.
       if (previousHumidity > MAXHUMIDITY)
       {
         turnOn();
       }
-      else
+      else if (previousHumidity <= MAXHUMIDITY - HYSTERESIS)
       {
         turnOff();
       }
