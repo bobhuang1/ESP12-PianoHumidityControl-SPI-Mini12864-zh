@@ -1,7 +1,7 @@
 #include <DHT.h>
 #include <DHT_U.h>
 #include <ESP8266WiFi.h>
-#include <ESPHTTPClient.h>
+#include <ESP8266HTTPClient.h> // was <ESPHTTPClient.h>, a header that no longer exists in any current core
 #include <JsonListener.h>
 #include <stdio.h>
 #include <time.h>                   // struct timeval
@@ -21,7 +21,7 @@
 #include "DeviceFleetClient.h"
 #include "BootSplashBitmap.h"
 
-#define CURRENT_VERSION 3
+#define CURRENT_VERSION 4
 //#define DEBUG
 //#define USE_WIFI_MANAGER     // disable to NOT use WiFi manager, enable to use
 #define DISPLAY_TYPE 2   // 1-BIG 12864, 2-MINI 12864, 3-New Big BLUE 12864, to use 3, you must change u8x8_d_st7565.c as well!!!, 4- New BLUE 12864-ST7920
@@ -232,7 +232,11 @@ void setup() {
     drawProgress("自动升级中!", "请稍候......");
     Serial.println("Auto upgrade starting...");
     ESPhttpUpdate.rebootOnUpdate(false);
-    t_httpUpdate_return ret = ESPhttpUpdate.update(fleet.settingsServer(), fleet.settingsPort(), fleet.firmwareBinUrl(settings.firmwareBin));
+    // ESP8266 core 3.x removed the update(host, port, path) overload - use the
+    // URL form with an explicit (plain-HTTP) client, as the core requires.
+    WiFiClient otaClient;
+    String otaUrl = "http://" + fleet.settingsServer() + ":" + String(fleet.settingsPort()) + fleet.firmwareBinUrl(settings.firmwareBin);
+    t_httpUpdate_return ret = ESPhttpUpdate.update(otaClient, otaUrl);
     Serial.println("Auto upgrade finished.");
     Serial.print("ret "); Serial.println(ret);
     switch (ret) {
