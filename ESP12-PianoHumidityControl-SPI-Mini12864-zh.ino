@@ -49,6 +49,8 @@ DeviceFleetSettings settings;
 #define BACKLIGHTPIN 0 // 2, 0
 
 #define MAXHUMIDITY 50
+#define SENSOR_TIMEOUT_MS (5UL * 60UL * 1000UL) // no valid reading this long -> relay OFF (fail safe)
+#define WIFI_TIMEOUT_MS   (60UL * 1000UL)        // give up on WiFi at boot and run offline
 #define HYSTERESIS 5  // relay switches OFF only this far below MAXHUMIDITY (45%) -
                       // prevents chattering when readings hover at the threshold
 
@@ -109,6 +111,9 @@ bool readyForWeatherUpdate = false;
 long timeSinceLastWUpdate = 0;
 float previousTemp = 0;
 float previousHumidity = 0;
+unsigned long lastValidReadingMs = 0;   // millis() of the last good DHT reading
+bool sensorFault = false;               // relay forced OFF because the sensor went silent
+bool fleetOk = false;                   // settings came from the fleet server and the device is registered
 BacklightController backlight;
 
 #define UPDATE_INTERVAL_SECS 1500
@@ -153,15 +158,24 @@ void setup() {
   drawProgress("Backlight Level", "Test");
   backlight.selfTest();
 
+  // Humidity control must never depend on the network: WiFi, the weather API and the
+  // fleet server are extras. Without them the device keeps controlling the relay with the
+  // compiled-in defaults.
 #ifdef USE_WIFI_MANAGER
   drawProgress("连接WIFI:", "ESP8266-Setup");
-  connectWiFiWithManager("ESP8266-Setup");
+  bool wifiOk = connectWiFiWithManager("ESP8266-Setup", 180);
 #else
   drawProgress("连接WIFI中,", "请稍等...");
-  connectWiFi(WIFI_SSIDS, WIFI_PASSWORDS, 3);
+  bool wifiOk = connectWiFi(WIFI_SSIDS, WIFI_PASSWORDS, 3, 30, WIFI_TIMEOUT_MS);
 #endif
 
-  if (WiFi.status() != WL_CONNECTED) ESP.restart();
+  if (!wifiOk)
+  {
+    drawProgress("WIFI连接失败", "离线运行湿度控制");
+    delay(2000);
+    lastValidReadingMs = millis();
+    return;
+  }
 
   // Get time from network time service
 #ifdef DEBUG
@@ -169,16 +183,21 @@ void setup() {
 #endif
   drawProgress("连接WIFI成功,", "正在同步时间...");
   configTime(TZ_SEC_FOR(8), DST_SEC_FOR(0), DefaultNtpServer);
-  fleet.readSettings(settings);
-  if (settings.serialNumber < 0)
+  // An unreachable server leaves the defaults in place (readSettings returns false). An
+  // unregistered device shows why, then still runs the humidity control; it just skips
+  // fleet logging and OTA.
+  fleetOk = fleet.readSettings(settings);
+  if (fleetOk && settings.serialNumber < 0)
   {
     drawProgress("新MAC " + String(WiFi.macAddress()), "序列号: " + String(settings.serialNumber));
-    stopApp();
+    delay(5000);
+    fleetOk = false;
   }
-  else if (settings.serialNumber == 0)
+  else if (fleetOk && settings.serialNumber == 0)
   {
     drawProgress("多MAC " + String(WiFi.macAddress()), "找管理员处理");
-    stopApp();
+    delay(5000);
+    fleetOk = false;
   }
   setContrastSub();
   drawProgress("Serial: " + String(settings.serialNumber), "MAC: " + String(WiFi.macAddress()));
@@ -226,8 +245,8 @@ void setup() {
   Serial.print("firmwareBin: ");
   Serial.println(fleet.firmwareBinUrl(settings.firmwareBin));
   Serial.println("");
-  fleet.writeBootNotification(settings.serialNumber);
-  if (settings.firmwareVersion > CURRENT_VERSION)
+  if (fleetOk) fleet.writeBootNotification(settings.serialNumber);
+  if (fleetOk && settings.firmwareVersion > CURRENT_VERSION)
   {
     drawProgress("自动升级中!", "请稍候......");
     Serial.println("Auto upgrade starting...");
@@ -271,6 +290,7 @@ void setup() {
   drawProgress("同步时间成功,", "正在更新天气数据...");
   updateData(true);
   timeSinceLastWUpdate = millis();
+  lastValidReadingMs = millis();
 }
 
 void setContrastSub() {
@@ -317,6 +337,8 @@ void loop() {
     }
     else
     {
+      lastValidReadingMs = millis();
+      sensorFault = false;
       previousTemp = fltCTemp;
       if (fltHumidity <= 100)
       {
@@ -339,9 +361,23 @@ void loop() {
       }
     }
   }
+  // Fail safe: if the sensor has not produced a valid reading for SENSOR_TIMEOUT_MS
+  // (unplugged, corroded, dead), switch the relay OFF instead of leaving a heater or
+  // dehumidifier running inside the piano on the last known value.
+  if (millis() - lastValidReadingMs > SENSOR_TIMEOUT_MS)
+  {
+    if (!sensorFault)
+    {
+      Serial.println("Humidity sensor silent - relay forced OFF");
+    }
+    sensorFault = true;
+    turnOff();
+    previousTemp = 0;
+    previousHumidity = 0;
+  }
 #endif
 
-  if (readyForWeatherUpdate) {
+  if (readyForWeatherUpdate && WiFi.status() == WL_CONNECTED) {
     updateData(false);
   }
 }
@@ -355,7 +391,7 @@ void updateData(bool isInitialBoot) {
     drawProgress("正在更新...", "本地天气实况...");
   }
   weatherClient.updateWeather(&currentWeather, weatherForecastUnused, WEATHERAPI_APP_ID, WEATHERAPI_LOCATION, WEATHERAPI_LANGUAGE, 1);
-  if (!isInitialBoot)
+  if (!isInitialBoot && fleetOk)
   {
     fleet.writeSensorData(settings.serialNumber, previousTemp, previousHumidity, (int)currentWeather.temp_c, currentWeather.humidity, 0);
   }

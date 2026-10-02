@@ -46,6 +46,14 @@ variant (`DISPLAY_TYPE 3`) you additionally need the patched u8g2 driver from
 
 ## Notes
 
+- **Fail-safe relay:** if the humidity sensor produces no valid reading for 5 minutes
+  (unplugged, corroded, dead), the relay is switched OFF and stays off until readings
+  return, so a heater or dehumidifier is never left running on a stale value.
+- **Works offline:** WiFi, the weather API and the fleet server are optional. If WiFi
+  does not connect within 60 s, or the fleet server is unreachable or does not know this
+  device, humidity control keeps running with the compiled-in defaults; only the
+  weather display, fleet logging and OTA are skipped.
+
 - Weather data comes from [WeatherAPI.com](https://www.weatherapi.com/)
   (see [esp8266-weather-WeatherApi](https://github.com/bobhuang1/esp8266-weather-WeatherApi)).
   Wind is shown in km/h, since WeatherAPI.com doesn't expose a discrete
