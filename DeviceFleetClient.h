@@ -42,7 +42,9 @@ public:
 	// re-resolving the settings server's address from the bootstrap server. Leaves
 	// `settings` unchanged (at its current/default values) if WiFi isn't connected or the
 	// server is unreachable.
-	void readSettings(DeviceFleetSettings &settings);
+	// Returns false - and leaves every field of `settings` unchanged - when WiFi is down,
+	// the server is unreachable, or the reply is not a complete 20-line record.
+	bool readSettings(DeviceFleetSettings &settings);
 
 	// Tells the settings server this device just booted (e.g. for fleet-wide uptime/version
 	// tracking). No-ops if WiFi isn't connected.

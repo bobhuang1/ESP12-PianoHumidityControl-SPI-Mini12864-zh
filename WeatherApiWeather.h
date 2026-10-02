@@ -35,12 +35,22 @@ typedef struct WeatherApiForecastData {
 class WeatherApiWeather : public JsonListener {
 private:
 	String currentKey;
-	String currentParent;
+
 	WeatherApiCurrentData *data;
 	WeatherApiForecastData *forecastData;
 	uint8_t currentForecast;
 	uint8_t maxForecasts;
-	uint8_t currentFinished = 0;
+
+	// Keys of the objects/arrays enclosing the current parse position, e.g.
+	// forecast > forecastday > [element] > day > condition. Lets value() tell a day's
+	// "code" from an hourly one, which share the same key names.
+	static const uint8_t MaxDepth = 10;
+	String path[MaxDepth];
+	uint8_t depth = 0;
+	void push(const String &key);
+	String pop();
+	bool inside(const char *key) const;
+
 	uint8_t doUpdate(WeatherApiCurrentData *data, WeatherApiForecastData *forecastData, String url);
 
 public:
@@ -57,6 +67,8 @@ public:
 	// (day-icon, night-icon). Values from the community-maintained mapping
 	// used across several ESP8266 weather station projects.
 	String getMeteoconIcon(String code);
+
+	static String urlEncode(const String &value);
 
 	virtual void whitespace(char c);
 	virtual void startDocument();

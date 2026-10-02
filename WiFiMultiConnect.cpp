@@ -5,7 +5,9 @@
 const char CompileDate[] = __DATE__ " " __TIME__;
 const char DefaultNtpServer[] = "pool.ntp.org";
 
-void connectWiFi(const char* const ssids[], const char* const passwords[], uint8_t count, int maxTriesPerNetwork) {
+bool connectWiFi(const char* const ssids[], const char* const passwords[], uint8_t count, int maxTriesPerNetwork, unsigned long totalTimeoutMs) {
+	if (count == 0) return false;
+	const unsigned long startedAt = millis();
 	WiFi.persistent(false);
 	WiFi.mode(WIFI_STA);
 	WiFi.disconnect();
@@ -27,6 +29,7 @@ void connectWiFi(const char* const ssids[], const char* const passwords[], uint8
 	uint8_t currentIndex = preferredIndex;
 	while (WiFi.status() != WL_CONNECTED) {
 		for (int attempt = 0; attempt < maxTriesPerNetwork && WiFi.status() != WL_CONNECTED; ++attempt) {
+			if (totalTimeoutMs > 0 && millis() - startedAt >= totalTimeoutMs) return false;
 			delay(1000);
 		}
 		if (WiFi.status() == WL_CONNECTED) break;
@@ -34,11 +37,12 @@ void connectWiFi(const char* const ssids[], const char* const passwords[], uint8
 		currentIndex = (currentIndex + 1) % count;
 		WiFi.begin(ssids[currentIndex], passwords[currentIndex]);
 	}
+	return true;
 }
 
-void connectWiFiWithManager(const char* apName, uint16_t configPortalTimeoutSeconds) {
+bool connectWiFiWithManager(const char* apName, uint16_t configPortalTimeoutSeconds) {
 	WiFi.persistent(true);
 	WiFiManager wifiManager;
 	wifiManager.setConfigPortalTimeout(configPortalTimeoutSeconds);
-	wifiManager.autoConnect(apName);
+	return wifiManager.autoConnect(apName);
 }

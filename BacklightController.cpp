@@ -4,6 +4,13 @@ void BacklightController::begin(int backlightPin, int lightSensorPin) {
 	_backlightPin = backlightPin;
 	_lightSensorPin = lightSensorPin;
 	pinMode(_backlightPin, OUTPUT);
+#if defined(ESP8266)
+	// The brightness table below is on a 0-1023 scale. ESP8266 core 3.x changed the
+	// default analogWrite range to 0-255, which made every level above 255 full
+	// brightness; set the range the table was written for. Note this is global to the
+	// sketch (every analogWrite pin uses it).
+	analogWriteRange(1023);
+#endif
 	for (int i = 0; i < 10; ++i) {
 		_lightLevel[i] = analogRead(_lightSensorPin);
 	}

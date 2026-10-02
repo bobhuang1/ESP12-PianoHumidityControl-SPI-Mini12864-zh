@@ -16,6 +16,23 @@ static bool parseBool01(const String &input) {
 	return trimmed == "1";
 }
 
+// Splits `text` into at most `maxLines` trimmed lines. Returns how many lines were found,
+// so callers can reject a reply that is shorter than the format requires.
+static int splitLines(const String &text, String lines[], int maxLines) {
+	int count = 0;
+	int start = 0;
+	const int length = text.length();
+	while (count < maxLines && start < length) {
+		int end = text.indexOf('\n', start);
+		if (end < 0) end = length;
+		String line = text.substring(start, end);
+		line.trim();
+		lines[count++] = line;
+		start = end + 1;
+	}
+	return count;
+}
+
 DeviceFleetClient::DeviceFleetClient(
 	const char* bootstrapServer, int bootstrapPort, const char* bootstrapPath,
 	const char* fallbackSettingsServer, int fallbackSettingsPort, const char* fallbackBaseUrl)
@@ -78,16 +95,12 @@ void DeviceFleetClient::resolveSettingsServer() {
 	// Expected format: one value per line - server, port, baseUrl, readSettingUrl,
 	// readTimerUrl (unused, kept for backward file-format compatibility), writeBootUrl,
 	// writeDataUrl, otaBinUrl.
+	// A short or garbled reply (a captive portal, a truncated download) keeps the
+	// current server rather than repointing the device at garbage.
 	String fields[8];
-	int previousEnd = 0;
-	for (int i = 0; i < 8; ++i) {
-		int end = response.indexOf('\n', previousEnd + 1);
-		String field = (i == 0) ? response.substring(previousEnd, end) : response.substring(previousEnd + 1, end);
-		field.replace("\n", "");
-		field.trim();
-		fields[i] = field;
-		previousEnd = end;
-	}
+	if (splitLines(response, fields, 8) < 8 || fields[0].length() == 0) return;
+	long port = fields[1].toInt();
+	if (port < 1 || port > 65535) return;
 
 	_settingsServer = fields[0];
 	_settingsPort = fields[1].toInt();
@@ -99,8 +112,8 @@ void DeviceFleetClient::resolveSettingsServer() {
 	_settingsOtaBinUrl = fields[7];
 }
 
-void DeviceFleetClient::readSettings(DeviceFleetSettings &settings) {
-	if (WiFi.status() != WL_CONNECTED) return;
+bool DeviceFleetClient::readSettings(DeviceFleetSettings &settings) {
+	if (WiFi.status() != WL_CONNECTED) return false;
 
 	resolveSettingsServer();
 
@@ -108,15 +121,15 @@ void DeviceFleetClient::readSettings(DeviceFleetSettings &settings) {
 	String url = _settingsBaseUrl + _settingsReadSettingUrl + macAddress;
 	String response = readHttpAsString(_settingsServer, _settingsPort, url);
 
+	// All-or-nothing: an unreachable server returns "", and a short reply would shift
+	// later fields. Either way the caller's settings (defaults or the last good values)
+	// are left untouched instead of being overwritten with zeros and empty strings.
 	const int FIELD_COUNT = 20;
-	String previousLine;
-	int previousEnd = 0;
+	String fields[FIELD_COUNT];
+	if (splitLines(response, fields, FIELD_COUNT) < FIELD_COUNT) return false;
+
 	for (int i = 0; i < FIELD_COUNT; ++i) {
-		int end = response.indexOf('\n', previousEnd + 1);
-		String field = (i == 0) ? response.substring(previousEnd, end) : response.substring(previousEnd + 1, end);
-		field.replace("\n", "");
-		field.trim();
-		previousEnd = end;
+		const String &field = fields[i];
 
 		switch (i) {
 			case 0: settings.serialNumber = field.toInt(); break;
@@ -141,6 +154,7 @@ void DeviceFleetClient::readSettings(DeviceFleetSettings &settings) {
 			case 19: settings.firmwareBin = field; break;
 		}
 	}
+	return true;
 }
 
 void DeviceFleetClient::writeBootNotification(int serialNumber) {

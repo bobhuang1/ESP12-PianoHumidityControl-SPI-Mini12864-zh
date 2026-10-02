@@ -8,18 +8,57 @@ WeatherApiWeather::WeatherApiWeather() {
 
 uint8_t WeatherApiWeather::updateWeather(WeatherApiCurrentData *data, WeatherApiForecastData *forecastData, String apiKey, String location, String language, uint8_t maxForecasts) {
 	this->maxForecasts = maxForecasts;
-	this->currentFinished = 0;
-	return doUpdate(data, forecastData, "https://api.weatherapi.com/v1/forecast.json?key=" + apiKey + "&q=" + location + "&days=" + maxForecasts + "&lang=" + language);
+	return doUpdate(data, forecastData, "https://api.weatherapi.com/v1/forecast.json?key=" + apiKey + "&q=" + urlEncode(location) + "&days=" + maxForecasts + "&lang=" + urlEncode(language));
+}
+
+// Percent-encodes a query-string value ("New York" -> "New%20York").
+String WeatherApiWeather::urlEncode(const String &value) {
+	const char *hex = "0123456789ABCDEF";
+	String out;
+	out.reserve(value.length() * 3);
+	for (unsigned int i = 0; i < value.length(); ++i) {
+		uint8_t c = (uint8_t)value[i];
+		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~' || c == ',') {
+			out += (char)c;
+		} else {
+			out += '%';
+			out += hex[c >> 4];
+			out += hex[c & 0x0F];
+		}
+	}
+	return out;
+}
+
+void WeatherApiWeather::push(const String &key) {
+	if (depth < MaxDepth) path[depth] = key;
+	depth++;
+}
+
+String WeatherApiWeather::pop() {
+	if (depth == 0) return String();
+	depth--;
+	return depth < MaxDepth ? path[depth] : String();
+}
+
+bool WeatherApiWeather::inside(const char *key) const {
+	for (uint8_t i = 0; i < depth && i < MaxDepth; ++i) {
+		if (path[i] == key) return true;
+	}
+	return false;
 }
 
 uint8_t WeatherApiWeather::doUpdate(WeatherApiCurrentData *data, WeatherApiForecastData *forecastData, String url) {
 	if (WiFi.status() != WL_CONNECTED) return 0;
 	this->currentForecast = 0;
+	this->depth = 0;
+	this->currentKey = "";
 	this->data = data;
 	this->forecastData = forecastData;
 	JsonStreamingParser parser;
 	parser.setListener(this);
-	Serial.printf("Getting url: %s\n", url.c_str());
+	// Log the request without its query string: it carries the API key.
+	int query = url.indexOf('?');
+	Serial.printf("Getting url: %s\n", (query < 0 ? url : url.substring(0, query)).c_str());
 
 	// NOTE: setInsecure() skips TLS certificate validation. This trades a
 	// (small, in-transit-only) MITM risk for not having to track and update a
@@ -33,6 +72,9 @@ uint8_t WeatherApiWeather::doUpdate(WeatherApiCurrentData *data, WeatherApiForec
 	client.setInsecure();
 
 	HTTPClient http;
+	// HTTP/1.0 so the server cannot answer with chunked transfer encoding: the raw stream
+	// below goes straight into the JSON parser, which would choke on chunk-size lines.
+	http.useHTTP10(true);
 	http.begin(client, url);
 
 	int httpCode = http.GET();
@@ -57,6 +99,7 @@ uint8_t WeatherApiWeather::doUpdate(WeatherApiCurrentData *data, WeatherApiForec
 				Serial.println("Timed out waiting for response body.");
 				break;
 			}
+			delay(1); // let the WiFi stack run while waiting for more bytes
 		}
 	} else {
 		Serial.printf("[HTTP] GET failed: %s\n", http.errorToString(httpCode).c_str());
@@ -79,7 +122,7 @@ void WeatherApiWeather::key(String key) {
 }
 
 void WeatherApiWeather::value(String value) {
-	if (currentFinished == 0) {
+	if (inside("current")) {
 		if (currentKey == "temp_c") {
 			this->data->temp_c = value.toFloat();
 		}
@@ -101,12 +144,13 @@ void WeatherApiWeather::value(String value) {
 		}
 		if (currentKey == "humidity") {
 			this->data->humidity = value.toInt();
-			currentFinished = 1;
-			currentForecast = 0;
 		}
+		return;
 	}
 
-	if (currentFinished == 1 && currentForecast < maxForecasts) {
+	// Day-level forecast values only. Each forecastday also carries an "astro" object and
+	// 24 "hour" entries with their own temp/condition/code keys; those are skipped.
+	if (inside("forecastday") && !inside("hour") && !inside("astro") && currentForecast < maxForecasts) {
 		if (currentKey == "date") {
 			forecastData[currentForecast].date = value;
 		}
@@ -137,25 +181,38 @@ void WeatherApiWeather::value(String value) {
 		if (currentKey == "code") {
 			forecastData[currentForecast].code = value;
 			forecastData[currentForecast].iconMeteoCon = getMeteoconIcon(value);
-			currentForecast++;
 		}
 	}
 }
 
+// Arrays and objects both push the key that introduced them, so the elements of
+// "forecastday" and "hour" are always recognisable regardless of their own keys.
+void WeatherApiWeather::startArray() {
+	push(currentKey);
+	// Elements have no key of their own; clearing it keeps an element object from
+	// pushing the array's name a second time.
+	currentKey = "";
+}
+
 void WeatherApiWeather::endArray() {
+	pop();
+	currentKey = "";
 }
 
 void WeatherApiWeather::startObject() {
-	currentParent = currentKey;
+	push(currentKey);
 }
 
 void WeatherApiWeather::endObject() {
+	pop();
+	// Closing an element of the forecastday array completes one forecast day.
+	if (depth > 0 && depth <= MaxDepth && path[depth - 1] == "forecastday" && currentForecast < maxForecasts) {
+		currentForecast++;
+	}
+	currentKey = "";
 }
 
 void WeatherApiWeather::endDocument() {
-}
-
-void WeatherApiWeather::startArray() {
 }
 
 String WeatherApiWeather::getMeteoconIcon(String code) {
